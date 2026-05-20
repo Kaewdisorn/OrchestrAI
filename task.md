@@ -1,13 +1,12 @@
 # Phase 0 — Repository Baseline: Task Breakdown
 
-**Priority:** P0  
-**Goal:** Create a predictable production workspace before feature code.  
-**Acceptance criteria:**
+**Priority:** P0**Goal:** Create a predictable production workspace before feature code.**Acceptance criteria:**
 
 - `pnpm install` succeeds.
 - `pnpm build` can run against an empty app.
-- PostgreSQL and Redis start from Kubernetes manifests (`k8s/dev/`) and are accessible via port-forward.
-- Test database is isolated from the development database.
+- Redis starts from Kubernetes manifests (`k8s/dev/`) and is accessible via port-forward.
+- PostgreSQL uses an existing instance with dedicated schemas (`orchestrai_dev`, `orchestrai_test`).
+- Test schema is isolated from the development schema.
 
 ---
 
@@ -113,11 +112,11 @@ PORT=3000
 # API authentication
 API_KEY=change-me-before-deploy
 
-# PostgreSQL (development)
-DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/orchestrai_dev?schema=public
+# PostgreSQL (development) — uses existing instance, dedicated schema
+DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/<your_db>?schema=orchestrai_dev
 
-# PostgreSQL (test — isolated from dev)
-TEST_DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5433/orchestrai_test?schema=public
+# PostgreSQL (test — isolated schema on same instance)
+TEST_DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/<your_db>?schema=orchestrai_test
 
 # Redis
 REDIS_URL=redis://localhost:6379
@@ -187,27 +186,52 @@ Thumbs.db
 
 ---
 
-## Task 0.6 — `k8s/dev/` (development infrastructure)
+## Task 0.6 — Dev infrastructure (Redis k8s + PostgreSQL)
 
-**Directory:** `k8s/dev/`
+### PostgreSQL — choose one option
 
-**`k8s/dev/namespace.yaml`**
+#### Option A — You already have PostgreSQL
+
+Run as a superuser (`psql -U postgres`) against your existing server:
+
+```sql
+CREATE ROLE orchestrai WITH LOGIN PASSWORD 'orchestrai';
+CREATE SCHEMA orchestrai_dev;
+CREATE SCHEMA orchestrai_test;
+GRANT ALL ON SCHEMA orchestrai_dev TO orchestrai;
+GRANT ALL ON SCHEMA orchestrai_test TO orchestrai;
+-- Enable pgvector once per database
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Update `.env` with your actual database name:
+
+```dotenv
+DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/<your_db>?schema=orchestrai_dev
+TEST_DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/<your_db>?schema=orchestrai_test
+```
+
+#### Option B — No PostgreSQL (spin up via k8s)
+
+**Directory:** `k8s/postgres/`
+
+**`k8s/postgres/namespace.yaml`**
 
 ```yaml
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: orchestrai-dev
+  name: orchestrai-postgres
 ```
 
-**`k8s/dev/postgres-secret.yaml`**
+**`k8s/postgres/secret.yaml`**
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: postgres-secret
-  namespace: orchestrai-dev
+  namespace: orchestrai-postgres
 type: Opaque
 stringData:
   POSTGRES_USER: orchestrai
@@ -215,14 +239,14 @@ stringData:
   POSTGRES_DB: orchestrai_dev
 ```
 
-**`k8s/dev/postgres-pvc.yaml`**
+**`k8s/postgres/pvc.yaml`**
 
 ```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
-  namespace: orchestrai-dev
+  namespace: orchestrai-postgres
 spec:
   accessModes: [ReadWriteOnce]
   resources:
@@ -230,15 +254,16 @@ spec:
       storage: 2Gi
 ```
 
-**`k8s/dev/postgres-deployment.yaml`**
+**`k8s/postgres/postgres-statefulset.yaml`**
 
 ```yaml
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: postgres
-  namespace: orchestrai-dev
+  namespace: orchestrai-postgres
 spec:
+  serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
@@ -251,6 +276,8 @@ spec:
       containers:
         - name: postgres
           image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
           env:
             - name: POSTGRES_USER
               valueFrom:
@@ -267,10 +294,8 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_DB
-          ports:
-            - containerPort: 5432
           volumeMounts:
-            - name: pgdata
+            - name: postgres-storage
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
@@ -280,25 +305,63 @@ spec:
             periodSeconds: 10
             failureThreshold: 5
       volumes:
-        - name: pgdata
+        - name: postgres-storage
           persistentVolumeClaim:
             claimName: postgres-pvc
 ```
 
-**`k8s/dev/postgres-service.yaml`**
+**`k8s/postgres/service.yaml`**
 
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: orchestrai-dev
+  namespace: orchestrai-postgres
 spec:
   selector:
     app: postgres
   ports:
     - port: 5432
       targetPort: 5432
+  type: ClusterIP
+```
+
+Apply and port-forward:
+
+```bash
+kubectl apply -f k8s/postgres/
+kubectl port-forward -n orchestrai-postgres svc/postgres 5432:5432 &
+```
+
+After first start, enable pgvector and create the test schema:
+
+```bash
+kubectl exec -n orchestrai-postgres deploy/postgres -- \
+  psql -U orchestrai -d orchestrai_dev -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+kubectl exec -n orchestrai-postgres deploy/postgres -- \
+  psql -U orchestrai -d orchestrai_dev -c "CREATE SCHEMA IF NOT EXISTS orchestrai_test; GRANT ALL ON SCHEMA orchestrai_test TO orchestrai;"
+```
+
+Update `.env`:
+
+```dotenv
+DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/orchestrai_dev?schema=orchestrai_dev
+TEST_DATABASE_URL=postgresql://orchestrai:orchestrai@localhost:5432/orchestrai_dev?schema=orchestrai_test
+```
+
+### Redis — `k8s/dev/` (namespace + Redis only)
+
+**Directory:** `k8s/dev/`
+
+**`k8s/dev/namespace.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orchestrai-dev
 ```
 
 **`k8s/dev/redis-pvc.yaml`**
@@ -371,11 +434,15 @@ spec:
 
 ---
 
-## Task 0.7 — `k8s/test/` (isolated test infrastructure)
+## Task 0.7 — Test infrastructure (Redis k8s + PostgreSQL schema)
+
+PostgreSQL test isolation is handled by the `orchestrai_test` schema created in Task 0.6. No separate pod needed — Prisma scopes all queries to that schema via `TEST_DATABASE_URL`.
+
+### Redis test — `k8s/test/` (namespace + Redis only)
 
 **Directory:** `k8s/test/`
 
-`emptyDir: { medium: Memory }` replaces `tmpfs` — the volume is in-memory and wiped when the pod is deleted, guaranteeing isolation without leftover data.
+`emptyDir: { medium: Memory }` keeps the Redis test pod fully ephemeral — wiped on pod deletion.
 
 **`k8s/test/namespace.yaml`**
 
@@ -384,92 +451,6 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: orchestrai-test
-```
-
-**`k8s/test/postgres-secret.yaml`**
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-  namespace: orchestrai-test
-type: Opaque
-stringData:
-  POSTGRES_USER: orchestrai
-  POSTGRES_PASSWORD: orchestrai
-  POSTGRES_DB: orchestrai_test
-```
-
-**`k8s/test/postgres-deployment.yaml`**
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres-test
-  namespace: orchestrai-test
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres-test
-  template:
-    metadata:
-      labels:
-        app: postgres-test
-    spec:
-      containers:
-        - name: postgres
-          image: pgvector/pgvector:pg16
-          env:
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_PASSWORD
-            - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_DB
-          ports:
-            - containerPort: 5432
-          volumeMounts:
-            - name: pgdata
-              mountPath: /var/lib/postgresql/data
-          readinessProbe:
-            exec:
-              command:
-                ["pg_isready", "-U", "orchestrai", "-d", "orchestrai_test"]
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            failureThreshold: 10
-      volumes:
-        - name: pgdata
-          emptyDir:
-            medium: Memory
-```
-
-**`k8s/test/postgres-service.yaml`**
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres-test
-  namespace: orchestrai-test
-spec:
-  selector:
-    app: postgres-test
-  ports:
-    - port: 5432
-      targetPort: 5432
 ```
 
 **`k8s/test/redis-deployment.yaml`**
@@ -781,26 +762,27 @@ export default config;
 
 ## Execution Order Summary
 
-| #    | Task                 | File                           | Why first                                                |
-| ---- | -------------------- | ------------------------------ | -------------------------------------------------------- |
-| 0.1  | Root package.json    | `package.json`                 | pnpm needs this to resolve workspaces                    |
-| 0.2  | Workspace definition | `pnpm-workspace.yaml`          | Tells pnpm which packages exist                          |
-| 0.3  | Turborepo pipeline   | `turbo.json`                   | Script dependencies and caching                          |
-| 0.4  | Environment template | `.env.example`                 | All variables documented before any code reads them      |
-| 0.5  | Gitignore            | `.gitignore`                   | Prevents secrets and artifacts from being committed      |
-| 0.6  | Dev k8s manifests    | `k8s/dev/`                     | Brings up postgres+pgvector and Redis for local dev      |
-| 0.7  | Test k8s manifests   | `k8s/test/`                    | Isolated ephemeral DB for integration and e2e tests      |
-| 0.8  | API package.json     | `apps/api/package.json`        | Pins all production and dev dependencies                 |
-| 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | Enforces strict mode and path aliases for all later code |
-| 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | Excludes test files from production build                |
-| 0.11 | NestJS CLI config    | `apps/api/nest-cli.json`       | Links NestJS build to the correct tsconfig               |
-| 0.12 | Jest config          | `apps/api/jest.config.ts`      | Separates unit, integration, and e2e test runs           |
+| #    | Task                 | File                                 | Why first                                                  |
+| ---- | -------------------- | ------------------------------------ | ---------------------------------------------------------- |
+| 0.1  | Root package.json    | `package.json`                       | pnpm needs this to resolve workspaces                      |
+| 0.2  | Workspace definition | `pnpm-workspace.yaml`                | Tells pnpm which packages exist                            |
+| 0.3  | Turborepo pipeline   | `turbo.json`                         | Script dependencies and caching                            |
+| 0.4  | Environment template | `.env.example`                       | All variables documented before any code reads them        |
+| 0.5  | Gitignore            | `.gitignore`                         | Prevents secrets and artifacts from being committed        |
+| 0.6  | Dev infra            | `k8s/dev/` + `k8s/postgres/` (opt B) | Redis via k8s; PostgreSQL via schema (A) or k8s pod (B)    |
+| 0.7  | Test infra           | `k8s/test/`                          | Redis via k8s; test isolation via `orchestrai_test` schema |
+| 0.8  | API package.json     | `apps/api/package.json`              | Pins all production and dev dependencies                   |
+| 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`             | Enforces strict mode and path aliases for all later code   |
+| 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json`       | Excludes test files from production build                  |
+| 0.11 | NestJS CLI config    | `apps/api/nest-cli.json`             | Links NestJS build to the correct tsconfig                 |
+| 0.12 | Jest config          | `apps/api/jest.config.ts`            | Separates unit, integration, and e2e test runs             |
 
 ## Verification Checklist
 
 - [ ] `pnpm install` completes with no errors from the repo root.
-- [ ] `kubectl apply -f k8s/dev/` starts PostgreSQL (port 5432) and Redis (port 6379) healthy; `kubectl port-forward -n orchestrai-dev svc/postgres 5432:5432` and `kubectl port-forward -n orchestrai-dev svc/redis 6379:6379` expose them on localhost.
-- [ ] `kubectl apply -f k8s/test/` starts test PostgreSQL and Redis healthy; `kubectl port-forward -n orchestrai-test svc/postgres-test 5433:5432` and `kubectl port-forward -n orchestrai-test svc/redis-test 6380:6379` expose them on localhost.
+- [ ] `orchestrai_dev` and `orchestrai_test` schemas exist on the existing PostgreSQL instance; `orchestrai` role has full access; `vector` extension is enabled.
+- [ ] `kubectl apply -f k8s/dev/` starts Redis (port 6379) healthy; `kubectl port-forward -n orchestrai-dev svc/redis 6379:6379` exposes it on localhost.
+- [ ] `kubectl apply -f k8s/test/` starts test Redis (port 6380) healthy; `kubectl port-forward -n orchestrai-test svc/redis-test 6380:6379` exposes it on localhost.
 - [ ] `pnpm build` exits 0 against a minimal empty `src/main.ts`.
 - [ ] `pnpm test` runs the unit project and exits without crashing the runner.
 - [ ] `pnpm lint` exits 0 on an empty `src/` directory.
@@ -816,10 +798,10 @@ export default config;
 | 0.1  | Root `package.json`  | `package.json`                 | ✅ Done |
 | 0.2  | Workspace definition | `pnpm-workspace.yaml`          | ✅ Done |
 | 0.3  | Turborepo pipeline   | `turbo.json`                   | ✅ Done |
-| 0.4  | Environment template | `.env.example`                 | ⬜ Todo |
-| 0.5  | Gitignore            | `.gitignore`                   | ⬜ Todo |
-| 0.6  | Dev k8s manifests    | `k8s/dev/`                     | ⬜ Todo |
-| 0.7  | Test k8s manifests   | `k8s/test/`                    | ⬜ Todo |
+| 0.4  | Environment template | `.env.example`                 | ✅ Done |
+| 0.5  | Gitignore            | `.gitignore`                   | ✅ Done |
+| 0.6  | Dev infra            | `k8s/dev/` + PG schema SQL     | ⬜ Todo |
+| 0.7  | Test infra           | `k8s/test/`                    | ⬜ Todo |
 | 0.8  | API `package.json`   | `apps/api/package.json`        | ⬜ Todo |
 | 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | ⬜ Todo |
 | 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | ⬜ Todo |
