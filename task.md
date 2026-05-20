@@ -6,7 +6,7 @@
 
 - `pnpm install` succeeds.
 - `pnpm build` can run against an empty app.
-- PostgreSQL and Redis start from Docker Compose.
+- PostgreSQL and Redis start from Kubernetes manifests (`k8s/dev/`) and are accessible via port-forward.
 - Test database is isolated from the development database.
 
 ---
@@ -183,100 +183,347 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 
-# Docker volumes (local dev)
-pgdata/
-redisdata/
 ```
 
 ---
 
-## Task 0.6 — `docker-compose.yml` (development)
+## Task 0.6 — `k8s/dev/` (development infrastructure)
 
-**File:** `docker-compose.yml`
+**Directory:** `k8s/dev/`
+
+**`k8s/dev/namespace.yaml`**
 
 ```yaml
-version: "3.9"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orchestrai-dev
+```
 
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: orchestrai_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: orchestrai
-      POSTGRES_PASSWORD: orchestrai
-      POSTGRES_DB: orchestrai_dev
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orchestrai -d orchestrai_dev"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+**`k8s/dev/postgres-secret.yaml`**
 
-  redis:
-    image: redis:7-alpine
-    container_name: orchestrai_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: orchestrai-dev
+type: Opaque
+stringData:
+  POSTGRES_USER: orchestrai
+  POSTGRES_PASSWORD: orchestrai
+  POSTGRES_DB: orchestrai_dev
+```
 
-volumes:
-  pgdata:
-  redisdata:
+**`k8s/dev/postgres-pvc.yaml`**
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: orchestrai-dev
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+```
+
+**`k8s/dev/postgres-deployment.yaml`**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: orchestrai-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command:
+                ["pg_isready", "-U", "orchestrai", "-d", "orchestrai_dev"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+```
+
+**`k8s/dev/postgres-service.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: orchestrai-dev
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+**`k8s/dev/redis-pvc.yaml`**
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: orchestrai-dev
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 512Mi
+```
+
+**`k8s/dev/redis-deployment.yaml`**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: orchestrai-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redisdata
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: redisdata
+          persistentVolumeClaim:
+            claimName: redis-pvc
+```
+
+**`k8s/dev/redis-service.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: orchestrai-dev
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
 ```
 
 ---
 
-## Task 0.7 — `docker-compose.test.yml` (isolated test database)
+## Task 0.7 — `k8s/test/` (isolated test infrastructure)
 
-**File:** `docker-compose.test.yml`
+**Directory:** `k8s/test/`
+
+`emptyDir: { medium: Memory }` replaces `tmpfs` — the volume is in-memory and wiped when the pod is deleted, guaranteeing isolation without leftover data.
+
+**`k8s/test/namespace.yaml`**
 
 ```yaml
-version: "3.9"
-
-services:
-  postgres_test:
-    image: pgvector/pgvector:pg16
-    container_name: orchestrai_postgres_test
-    environment:
-      POSTGRES_USER: orchestrai
-      POSTGRES_PASSWORD: orchestrai
-      POSTGRES_DB: orchestrai_test
-    ports:
-      - "5433:5432"
-    tmpfs:
-      - /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orchestrai -d orchestrai_test"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  redis_test:
-    image: redis:7-alpine
-    container_name: orchestrai_redis_test
-    ports:
-      - "6380:6379"
-    tmpfs:
-      - /data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orchestrai-test
 ```
 
-> **Note:** `tmpfs` is used so the test database is in-memory and wiped on container restart, guaranteeing isolation without leftover data.
+**`k8s/test/postgres-secret.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: orchestrai-test
+type: Opaque
+stringData:
+  POSTGRES_USER: orchestrai
+  POSTGRES_PASSWORD: orchestrai
+  POSTGRES_DB: orchestrai_test
+```
+
+**`k8s/test/postgres-deployment.yaml`**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-test
+  namespace: orchestrai-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-test
+  template:
+    metadata:
+      labels:
+        app: postgres-test
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command:
+                ["pg_isready", "-U", "orchestrai", "-d", "orchestrai_test"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10
+      volumes:
+        - name: pgdata
+          emptyDir:
+            medium: Memory
+```
+
+**`k8s/test/postgres-service.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-test
+  namespace: orchestrai-test
+spec:
+  selector:
+    app: postgres-test
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+**`k8s/test/redis-deployment.yaml`**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-test
+  namespace: orchestrai-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-test
+  template:
+    metadata:
+      labels:
+        app: redis-test
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redisdata
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: redisdata
+          emptyDir:
+            medium: Memory
+```
+
+**`k8s/test/redis-service.yaml`**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-test
+  namespace: orchestrai-test
+spec:
+  selector:
+    app: redis-test
+  ports:
+    - port: 6379
+      targetPort: 6379
+```
 
 ---
 
@@ -541,8 +788,8 @@ export default config;
 | 0.3  | Turborepo pipeline   | `turbo.json`                   | Script dependencies and caching                          |
 | 0.4  | Environment template | `.env.example`                 | All variables documented before any code reads them      |
 | 0.5  | Gitignore            | `.gitignore`                   | Prevents secrets and artifacts from being committed      |
-| 0.6  | Dev Docker Compose   | `docker-compose.yml`           | Brings up postgres+pgvector and Redis for local dev      |
-| 0.7  | Test Docker Compose  | `docker-compose.test.yml`      | Isolated ephemeral DB for integration and e2e tests      |
+| 0.6  | Dev k8s manifests    | `k8s/dev/`                     | Brings up postgres+pgvector and Redis for local dev      |
+| 0.7  | Test k8s manifests   | `k8s/test/`                    | Isolated ephemeral DB for integration and e2e tests      |
 | 0.8  | API package.json     | `apps/api/package.json`        | Pins all production and dev dependencies                 |
 | 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | Enforces strict mode and path aliases for all later code |
 | 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | Excludes test files from production build                |
@@ -552,10 +799,29 @@ export default config;
 ## Verification Checklist
 
 - [ ] `pnpm install` completes with no errors from the repo root.
-- [ ] `docker compose up -d` starts PostgreSQL (port 5432) and Redis (port 6379) healthy.
-- [ ] `docker compose -f docker-compose.test.yml up -d` starts test PostgreSQL (port 5433) and Redis (port 6380) healthy.
+- [ ] `kubectl apply -f k8s/dev/` starts PostgreSQL (port 5432) and Redis (port 6379) healthy; `kubectl port-forward -n orchestrai-dev svc/postgres 5432:5432` and `kubectl port-forward -n orchestrai-dev svc/redis 6379:6379` expose them on localhost.
+- [ ] `kubectl apply -f k8s/test/` starts test PostgreSQL and Redis healthy; `kubectl port-forward -n orchestrai-test svc/postgres-test 5433:5432` and `kubectl port-forward -n orchestrai-test svc/redis-test 6380:6379` expose them on localhost.
 - [ ] `pnpm build` exits 0 against a minimal empty `src/main.ts`.
 - [ ] `pnpm test` runs the unit project and exits without crashing the runner.
 - [ ] `pnpm lint` exits 0 on an empty `src/` directory.
 - [ ] TypeScript path aliases (`@domain/`, `@application/`, `@infrastructure/`, `@presentation/`, `@core/`) resolve in both src and test files.
 - [ ] `.env` is not tracked by git; `.env.example` is committed.
+
+---
+
+## Progress
+
+| #    | Task                 | File(s)                        | Status  |
+| ---- | -------------------- | ------------------------------ | ------- |
+| 0.1  | Root `package.json`  | `package.json`                 | ✅ Done |
+| 0.2  | Workspace definition | `pnpm-workspace.yaml`          | ✅ Done |
+| 0.3  | Turborepo pipeline   | `turbo.json`                   | ✅ Done |
+| 0.4  | Environment template | `.env.example`                 | ⬜ Todo |
+| 0.5  | Gitignore            | `.gitignore`                   | ⬜ Todo |
+| 0.6  | Dev k8s manifests    | `k8s/dev/`                     | ⬜ Todo |
+| 0.7  | Test k8s manifests   | `k8s/test/`                    | ⬜ Todo |
+| 0.8  | API `package.json`   | `apps/api/package.json`        | ⬜ Todo |
+| 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | ⬜ Todo |
+| 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | ⬜ Todo |
+| 0.11 | NestJS CLI config    | `apps/api/nest-cli.json`       | ⬜ Todo |
+| 0.12 | Jest config          | `apps/api/jest.config.ts`      | ⬜ Todo |
