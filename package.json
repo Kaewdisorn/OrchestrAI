@@ -1,0 +1,23 @@
+{
+    "name": "orchestrai",
+    "private": true,
+    "scripts": {
+        "dev": "turbo run dev",
+        "build": "turbo run build",
+        "lint": "turbo run lint",
+        "format": "turbo run format",
+        "test": "turbo run test",
+        "test:int": "turbo run test:int",
+        "test:e2e": "turbo run test:e2e",
+        "prisma:migrate": "turbo run prisma:migrate --filter=api",
+        "prisma:generate": "turbo run prisma:generate --filter=api"
+    },
+    "devDependencies": {
+        "turbo": "^2.3.0"
+    },
+    "engines": {
+        "node": ">=20.0.0",
+        "pnpm": ">=9.0.0"
+    },
+    "packageManager": "pnpm@9.15.0"
+}
