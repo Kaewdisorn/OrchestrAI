@@ -780,7 +780,7 @@ export default config;
 ## Verification Checklist
 
 - [ ] `pnpm install` completes with no errors from the repo root.
-- [ ] `orchestrai_dev` and `orchestrai_test` schemas exist on the existing PostgreSQL instance; `orchestrai` role has full access; `vector` extension is enabled.
+- [x] PostgreSQL running via `k8s/postgres/`; pod is `1/1 Running`; accessible via `kubectl port-forward -n orchestrai-postgres svc/postgres 5432:5432`.
 - [ ] `kubectl apply -f k8s/dev/` starts Redis (port 6379) healthy; `kubectl port-forward -n orchestrai-dev svc/redis 6379:6379` exposes it on localhost.
 - [ ] `kubectl apply -f k8s/test/` starts test Redis (port 6380) healthy; `kubectl port-forward -n orchestrai-test svc/redis-test 6380:6379` exposes it on localhost.
 - [ ] `pnpm build` exits 0 against a minimal empty `src/main.ts`.
@@ -800,7 +800,7 @@ export default config;
 | 0.3  | Turborepo pipeline   | `turbo.json`                   | ✅ Done |
 | 0.4  | Environment template | `.env.example`                 | ✅ Done |
 | 0.5  | Gitignore            | `.gitignore`                   | ✅ Done |
-| 0.6  | Dev infra            | `k8s/dev/` + PG schema SQL     | ⬜ Todo |
+| 0.6  | Dev infra            | `k8s/dev/` + PG schema SQL     | 🔶 In Progress (PostgreSQL k8s ✅, Redis k8s/dev/ ⬜) |
 | 0.7  | Test infra           | `k8s/test/`                    | ⬜ Todo |
 | 0.8  | API `package.json`   | `apps/api/package.json`        | ⬜ Todo |
 | 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | ⬜ Todo |
