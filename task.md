@@ -793,17 +793,17 @@ export default config;
 
 ## Progress
 
-| #    | Task                 | File(s)                        | Status  |
-| ---- | -------------------- | ------------------------------ | ------- |
-| 0.1  | Root `package.json`  | `package.json`                 | ✅ Done |
-| 0.2  | Workspace definition | `pnpm-workspace.yaml`          | ✅ Done |
-| 0.3  | Turborepo pipeline   | `turbo.json`                   | ✅ Done |
-| 0.4  | Environment template | `.env.example`                 | ✅ Done |
-| 0.5  | Gitignore            | `.gitignore`                   | ✅ Done |
+| #    | Task                 | File(s)                        | Status                                                |
+| ---- | -------------------- | ------------------------------ | ----------------------------------------------------- |
+| 0.1  | Root `package.json`  | `package.json`                 | ✅ Done                                               |
+| 0.2  | Workspace definition | `pnpm-workspace.yaml`          | ✅ Done                                               |
+| 0.3  | Turborepo pipeline   | `turbo.json`                   | ✅ Done                                               |
+| 0.4  | Environment template | `.env.example`                 | ✅ Done                                               |
+| 0.5  | Gitignore            | `.gitignore`                   | ✅ Done                                               |
 | 0.6  | Dev infra            | `k8s/dev/` + PG schema SQL     | 🔶 In Progress (PostgreSQL k8s ✅, Redis k8s/dev/ ⬜) |
-| 0.7  | Test infra           | `k8s/test/`                    | ⬜ Todo |
-| 0.8  | API `package.json`   | `apps/api/package.json`        | ⬜ Todo |
-| 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | ⬜ Todo |
-| 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | ⬜ Todo |
-| 0.11 | NestJS CLI config    | `apps/api/nest-cli.json`       | ⬜ Todo |
-| 0.12 | Jest config          | `apps/api/jest.config.ts`      | ⬜ Todo |
+| 0.7  | Test infra           | `k8s/test/`                    | ⬜ Todo                                               |
+| 0.8  | API `package.json`   | `apps/api/package.json`        | ⬜ Todo                                               |
+| 0.9  | Strict tsconfig      | `apps/api/tsconfig.json`       | ⬜ Todo                                               |
+| 0.10 | Build tsconfig       | `apps/api/tsconfig.build.json` | ⬜ Todo                                               |
+| 0.11 | NestJS CLI config    | `apps/api/nest-cli.json`       | ⬜ Todo                                               |
+| 0.12 | Jest config          | `apps/api/jest.config.ts`      | ⬜ Todo                                               |
