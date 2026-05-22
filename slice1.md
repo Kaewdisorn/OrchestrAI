@@ -261,9 +261,10 @@ import { CreateAgentCommand } from "./create-agent.command";
 import { CreateAgentResponse } from "../create-agent.response";
 
 @CommandHandler(CreateAgentCommand)
-export class CreateAgentCommandHandler
-  implements ICommandHandler<CreateAgentCommand, CreateAgentResponse>
-{
+export class CreateAgentCommandHandler implements ICommandHandler<
+  CreateAgentCommand,
+  CreateAgentResponse
+> {
   constructor(
     @Inject(AGENT_REPOSITORY)
     private readonly agentRepository: IAgentRepository,
