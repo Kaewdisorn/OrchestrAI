@@ -11,26 +11,28 @@
 ```
 apps/api/
   prisma/
-    schema.prisma                               ← add Agent model
+    schema.prisma                                     ← add Agent model
   src/
-    domain/
+    features/
       agent/
-        agent.entity.ts                         ← plain Agent class, no framework
-    infrastructure/
-      persistence/
-        prisma.service.ts                       ← Prisma client wrapper
-        agent.repository.ts                     ← save / findById
-    application/
-      create-agent/
-        create-agent.use-case.ts                ← orchestrates domain + repo
-        create-agent.dto.ts                     ← input shape
-        create-agent.response.ts                ← output shape
-    presentation/
-      agent.controller.ts                       ← POST /agents
-      agent.module.ts                           ← wires everything
-    app.module.ts                               ← import AgentModule
+        domain/
+          agent.entity.ts                             ← plain Agent class, no framework
+        infrastructure/
+          prisma.service.ts                           ← Prisma client wrapper
+          agent.repository.ts                         ← save / findById
+        application/
+          create-agent.use-case.ts                    ← orchestrates domain + repo
+          create-agent.dto.ts                         ← input shape (plain interface)
+          create-agent.response.ts                    ← output shape (plain interface)
+        presentation/
+          dto/
+            create-agent.request.dto.ts               ← HTTP request DTO (class-validator)
+            create-agent.response.dto.ts              ← HTTP response DTO
+          agent.controller.ts                         ← POST /agents, maps DTOs
+          agent.module.ts                             ← wires everything
+    app.module.ts                                     ← import AgentModule
   test/
-    agent.e2e-spec.ts                           ← E2E test
+    agent.e2e-spec.ts                                 ← E2E test
 ```
 
 ---
@@ -72,7 +74,7 @@ npx prisma generate
 
 ## Step 2 — Domain Entity
 
-**File:** `apps/api/src/domain/agent/agent.entity.ts`
+**File:** `apps/api/src/features/agent/domain/agent.entity.ts`
 
 No NestJS. No Prisma. Just a plain class with a static factory method.
 
@@ -124,7 +126,7 @@ export class Agent {
 
 ## Step 3 — Prisma Service
 
-**File:** `apps/api/src/infrastructure/persistence/prisma.service.ts`
+**File:** `apps/api/src/features/agent/infrastructure/prisma.service.ts`
 
 ```typescript
 import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
@@ -149,11 +151,11 @@ export class PrismaService
 
 ## Step 4 — Agent Repository
 
-**File:** `apps/api/src/infrastructure/persistence/agent.repository.ts`
+**File:** `apps/api/src/features/agent/infrastructure/agent.repository.ts`
 
 ```typescript
 import { Injectable } from "@nestjs/common";
-import { Agent } from "../../domain/agent/agent.entity";
+import { Agent } from "../domain/agent.entity";
 import { PrismaService } from "./prisma.service";
 
 @Injectable()
@@ -190,7 +192,7 @@ export class AgentRepository {
 
 ### Input / Output shapes
 
-**File:** `apps/api/src/application/create-agent/create-agent.dto.ts`
+**File:** `apps/api/src/features/agent/application/create-agent.dto.ts`
 
 ```typescript
 export interface CreateAgentDto {
@@ -199,7 +201,7 @@ export interface CreateAgentDto {
 }
 ```
 
-**File:** `apps/api/src/application/create-agent/create-agent.response.ts`
+**File:** `apps/api/src/features/agent/application/create-agent.response.ts`
 
 ```typescript
 export interface CreateAgentResponse {
@@ -212,13 +214,13 @@ export interface CreateAgentResponse {
 
 ### Use Case
 
-**File:** `apps/api/src/application/create-agent/create-agent.use-case.ts`
+**File:** `apps/api/src/features/agent/application/create-agent.use-case.ts`
 
 ```typescript
 import { Injectable } from "@nestjs/common";
 import { v4 as uuidv4 } from "uuid";
-import { Agent } from "../../domain/agent/agent.entity";
-import { AgentRepository } from "../../infrastructure/persistence/agent.repository";
+import { Agent } from "../domain/agent.entity";
+import { AgentRepository } from "../infrastructure/agent.repository";
 import { CreateAgentDto } from "./create-agent.dto";
 import { CreateAgentResponse } from "./create-agent.response";
 
@@ -247,17 +249,14 @@ export class CreateAgentUseCase {
 
 ---
 
-## Step 6 — HTTP Controller
+## Step 6 — HTTP DTOs
 
-**File:** `apps/api/src/presentation/agent.controller.ts`
+**File:** `apps/api/src/features/agent/presentation/dto/create-agent.request.dto.ts`
 
 ```typescript
-import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { IsNotEmpty, IsString } from "class-validator";
-import { CreateAgentUseCase } from "../application/create-agent/create-agent.use-case";
-import { CreateAgentResponse } from "../application/create-agent/create-agent.response";
 
-class CreateAgentBody {
+export class CreateAgentRequestDto {
   @IsString()
   @IsNotEmpty()
   name!: string;
@@ -266,6 +265,30 @@ class CreateAgentBody {
   @IsNotEmpty()
   systemPrompt!: string;
 }
+```
+
+**File:** `apps/api/src/features/agent/presentation/dto/create-agent.response.dto.ts`
+
+```typescript
+export class CreateAgentResponseDto {
+  id!: string;
+  name!: string;
+  systemPrompt!: string;
+  createdAt!: string;
+}
+```
+
+---
+
+## Step 7 — HTTP Controller
+
+**File:** `apps/api/src/features/agent/presentation/agent.controller.ts`
+
+```typescript
+import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import { CreateAgentUseCase } from "../application/create-agent.use-case";
+import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
+import { CreateAgentResponseDto } from "./dto/create-agent.response.dto";
 
 @Controller("agents")
 export class AgentController {
@@ -273,7 +296,9 @@ export class AgentController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() body: CreateAgentBody): Promise<CreateAgentResponse> {
+  async create(
+    @Body() body: CreateAgentRequestDto,
+  ): Promise<CreateAgentResponseDto> {
     return this.createAgent.execute({
       name: body.name,
       systemPrompt: body.systemPrompt,
@@ -284,16 +309,16 @@ export class AgentController {
 
 ---
 
-## Step 7 — Module
+## Step 8 — Module
 
-**File:** `apps/api/src/presentation/agent.module.ts`
+**File:** `apps/api/src/features/agent/presentation/agent.module.ts`
 
 ```typescript
 import { Module } from "@nestjs/common";
 import { AgentController } from "./agent.controller";
-import { CreateAgentUseCase } from "../application/create-agent/create-agent.use-case";
-import { AgentRepository } from "../infrastructure/persistence/agent.repository";
-import { PrismaService } from "../infrastructure/persistence/prisma.service";
+import { CreateAgentUseCase } from "../application/create-agent.use-case";
+import { AgentRepository } from "../infrastructure/agent.repository";
+import { PrismaService } from "../infrastructure/prisma.service";
 
 @Module({
   controllers: [AgentController],
@@ -306,7 +331,7 @@ export class AgentModule {}
 
 ```typescript
 import { Module } from "@nestjs/common";
-import { AgentModule } from "./presentation/agent.module";
+import { AgentModule } from "./features/agent/presentation/agent.module";
 
 @Module({
   imports: [AgentModule],
@@ -316,7 +341,7 @@ export class AppModule {}
 
 ---
 
-## Step 8 — Enable Global Validation Pipe
+## Step 9 — Enable Global Validation Pipe
 
 **File:** `apps/api/src/main.ts`
 
@@ -342,15 +367,15 @@ bootstrap();
 
 ---
 
-## Step 9 — Tests
+## Step 10 — Tests
 
 ### Unit test — Use Case
 
-**File:** `apps/api/src/application/create-agent/create-agent.use-case.spec.ts`
+**File:** `apps/api/src/features/agent/application/create-agent.use-case.spec.ts`
 
 ```typescript
 import { CreateAgentUseCase } from "./create-agent.use-case";
-import { AgentRepository } from "../../infrastructure/persistence/agent.repository";
+import { AgentRepository } from "../infrastructure/agent.repository";
 
 const mockRepo = {
   save: jest.fn(),
@@ -393,7 +418,7 @@ describe("CreateAgentUseCase", () => {
 
 ### Unit test — Domain Entity
 
-**File:** `apps/api/src/domain/agent/agent.entity.spec.ts`
+**File:** `apps/api/src/features/agent/domain/agent.entity.spec.ts`
 
 ```typescript
 import { Agent } from "./agent.entity";
@@ -419,14 +444,14 @@ describe("Agent.create", () => {
 
 ### Integration test — Repository
 
-**File:** `apps/api/src/infrastructure/persistence/agent.repository.int-spec.ts`
+**File:** `apps/api/src/features/agent/infrastructure/agent.repository.int-spec.ts`
 
 > Requires `DATABASE_URL` pointing at a real (test) database.
 
 ```typescript
 import { PrismaService } from "./prisma.service";
 import { AgentRepository } from "./agent.repository";
-import { Agent } from "../../domain/agent/agent.entity";
+import { Agent } from "../domain/agent.entity";
 import { v4 as uuidv4 } from "uuid";
 
 describe("AgentRepository (integration)", () => {
