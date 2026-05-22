@@ -17,19 +17,23 @@ apps/api/
       agent/
         domain/
           agent.entity.ts                             ← plain Agent class, no framework
-        infrastructure/
-          prisma.service.ts                           ← Prisma client wrapper
-          agent.repository.ts                         ← save / findById
         application/
-          create-agent.use-case.ts                    ← orchestrates domain + repo
-          create-agent.dto.ts                         ← input shape (plain interface)
+          ports/
+            agent-repository.port.ts                  ← IAgentRepository interface + DI token
+          commands/
+            create-agent.command.ts                   ← intent data object (CQRS write side)
+            create-agent.command-handler.ts           ← orchestrates domain + repo via port
           create-agent.response.ts                    ← output shape (plain interface)
+        infrastructure/
+          persistence/
+            prisma.service.ts                         ← Prisma client wrapper
+            prisma-agent.repository.ts                ← adapter: implements IAgentRepository
         presentation/
           dto/
             create-agent.request.dto.ts               ← HTTP request DTO (class-validator)
             create-agent.response.dto.ts              ← HTTP response DTO
-          agent.controller.ts                         ← POST /agents, maps DTOs
-          agent.module.ts                             ← wires everything
+          agent.controller.ts                         ← POST /agents, dispatches command
+          agent.module.ts                             ← wires everything, binds port token
     app.module.ts                                     ← import AgentModule
   test/
     agent.e2e-spec.ts                                 ← E2E test
@@ -126,7 +130,7 @@ export class Agent {
 
 ## Step 3 — Prisma Service
 
-**File:** `apps/api/src/features/agent/infrastructure/prisma.service.ts`
+**File:** `apps/api/src/features/agent/infrastructure/persistence/prisma.service.ts`
 
 ```typescript
 import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
@@ -149,17 +153,39 @@ export class PrismaService
 
 ---
 
-## Step 4 — Agent Repository
+## Step 4 — Repository Port
 
-**File:** `apps/api/src/features/agent/infrastructure/agent.repository.ts`
+**File:** `apps/api/src/features/agent/application/ports/agent-repository.port.ts`
+
+No framework. The application layer depends on this interface, never on Prisma directly.
+
+```typescript
+import { Agent } from "../../domain/agent.entity";
+
+export const AGENT_REPOSITORY = Symbol("IAgentRepository");
+
+export interface IAgentRepository {
+  save(agent: Agent): Promise<void>;
+  findById(id: string): Promise<Agent | null>;
+}
+```
+
+---
+
+## Step 5 — Prisma Repository Adapter
+
+**File:** `apps/api/src/features/agent/infrastructure/persistence/prisma-agent.repository.ts`
+
+Implements `IAgentRepository`. The only file that knows about Prisma's shape.
 
 ```typescript
 import { Injectable } from "@nestjs/common";
-import { Agent } from "../domain/agent.entity";
+import { Agent } from "../../domain/agent.entity";
+import { IAgentRepository } from "../../application/ports/agent-repository.port";
 import { PrismaService } from "./prisma.service";
 
 @Injectable()
-export class AgentRepository {
+export class PrismaAgentRepository implements IAgentRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async save(agent: Agent): Promise<void> {
@@ -188,18 +214,22 @@ export class AgentRepository {
 
 ---
 
-## Step 5 — Use Case
+## Step 6 — Command & Handler
 
-### Input / Output shapes
+### Command
 
-**File:** `apps/api/src/features/agent/application/create-agent.dto.ts`
+**File:** `apps/api/src/features/agent/application/commands/create-agent.command.ts`
 
 ```typescript
-export interface CreateAgentDto {
-  name: string;
-  systemPrompt: string;
+export class CreateAgentCommand {
+  constructor(
+    public readonly name: string,
+    public readonly systemPrompt: string,
+  ) {}
 }
 ```
+
+### Response shape
 
 **File:** `apps/api/src/features/agent/application/create-agent.response.ts`
 
@@ -212,27 +242,33 @@ export interface CreateAgentResponse {
 }
 ```
 
-### Use Case
+### Command Handler
 
-**File:** `apps/api/src/features/agent/application/create-agent.use-case.ts`
+**File:** `apps/api/src/features/agent/application/commands/create-agent.command-handler.ts`
 
 ```typescript
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { v4 as uuidv4 } from "uuid";
-import { Agent } from "../domain/agent.entity";
-import { AgentRepository } from "../infrastructure/agent.repository";
-import { CreateAgentDto } from "./create-agent.dto";
-import { CreateAgentResponse } from "./create-agent.response";
+import { Agent } from "../../domain/agent.entity";
+import {
+  IAgentRepository,
+  AGENT_REPOSITORY,
+} from "../ports/agent-repository.port";
+import { CreateAgentCommand } from "./create-agent.command";
+import { CreateAgentResponse } from "../create-agent.response";
 
 @Injectable()
-export class CreateAgentUseCase {
-  constructor(private readonly agentRepository: AgentRepository) {}
+export class CreateAgentCommandHandler {
+  constructor(
+    @Inject(AGENT_REPOSITORY)
+    private readonly agentRepository: IAgentRepository,
+  ) {}
 
-  async execute(dto: CreateAgentDto): Promise<CreateAgentResponse> {
+  async execute(command: CreateAgentCommand): Promise<CreateAgentResponse> {
     const agent = Agent.create({
       id: uuidv4(),
-      name: dto.name,
-      systemPrompt: dto.systemPrompt,
+      name: command.name,
+      systemPrompt: command.systemPrompt,
     });
 
     await this.agentRepository.save(agent);
@@ -249,7 +285,7 @@ export class CreateAgentUseCase {
 
 ---
 
-## Step 6 — HTTP DTOs
+## Step 7 — HTTP DTOs
 
 **File:** `apps/api/src/features/agent/presentation/dto/create-agent.request.dto.ts`
 
@@ -280,49 +316,54 @@ export class CreateAgentResponseDto {
 
 ---
 
-## Step 7 — HTTP Controller
+## Step 8 — HTTP Controller
 
 **File:** `apps/api/src/features/agent/presentation/agent.controller.ts`
 
 ```typescript
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
-import { CreateAgentUseCase } from "../application/create-agent.use-case";
+import { CreateAgentCommandHandler } from "../application/commands/create-agent.command-handler";
+import { CreateAgentCommand } from "../application/commands/create-agent.command";
 import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
 import { CreateAgentResponseDto } from "./dto/create-agent.response.dto";
 
 @Controller("agents")
 export class AgentController {
-  constructor(private readonly createAgent: CreateAgentUseCase) {}
+  constructor(private readonly handler: CreateAgentCommandHandler) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() body: CreateAgentRequestDto,
   ): Promise<CreateAgentResponseDto> {
-    return this.createAgent.execute({
-      name: body.name,
-      systemPrompt: body.systemPrompt,
-    });
+    return this.handler.execute(
+      new CreateAgentCommand(body.name, body.systemPrompt),
+    );
   }
 }
 ```
 
 ---
 
-## Step 8 — Module
+## Step 9 — Module
 
 **File:** `apps/api/src/features/agent/presentation/agent.module.ts`
 
 ```typescript
 import { Module } from "@nestjs/common";
 import { AgentController } from "./agent.controller";
-import { CreateAgentUseCase } from "../application/create-agent.use-case";
-import { AgentRepository } from "../infrastructure/agent.repository";
-import { PrismaService } from "../infrastructure/prisma.service";
+import { CreateAgentCommandHandler } from "../application/commands/create-agent.command-handler";
+import { PrismaAgentRepository } from "../infrastructure/persistence/prisma-agent.repository";
+import { PrismaService } from "../infrastructure/persistence/prisma.service";
+import { AGENT_REPOSITORY } from "../application/ports/agent-repository.port";
 
 @Module({
   controllers: [AgentController],
-  providers: [CreateAgentUseCase, AgentRepository, PrismaService],
+  providers: [
+    CreateAgentCommandHandler,
+    PrismaService,
+    { provide: AGENT_REPOSITORY, useClass: PrismaAgentRepository },
+  ],
 })
 export class AgentModule {}
 ```
@@ -341,7 +382,7 @@ export class AppModule {}
 
 ---
 
-## Step 9 — Enable Global Validation Pipe
+## Step 10 — Enable Global Validation Pipe
 
 **File:** `apps/api/src/main.ts`
 
@@ -367,34 +408,34 @@ bootstrap();
 
 ---
 
-## Step 10 — Tests
+## Step 11 — Tests
 
-### Unit test — Use Case
+### Unit test — Command Handler
 
-**File:** `apps/api/src/features/agent/application/create-agent.use-case.spec.ts`
+**File:** `apps/api/src/features/agent/application/commands/create-agent.command-handler.spec.ts`
 
 ```typescript
-import { CreateAgentUseCase } from "./create-agent.use-case";
-import { AgentRepository } from "../infrastructure/agent.repository";
+import { CreateAgentCommandHandler } from "./create-agent.command-handler";
+import { CreateAgentCommand } from "./create-agent.command";
+import { IAgentRepository } from "../ports/agent-repository.port";
 
-const mockRepo = {
+const mockRepo: jest.Mocked<IAgentRepository> = {
   save: jest.fn(),
   findById: jest.fn(),
-} satisfies Partial<AgentRepository>;
+};
 
-describe("CreateAgentUseCase", () => {
-  let useCase: CreateAgentUseCase;
+describe("CreateAgentCommandHandler", () => {
+  let handler: CreateAgentCommandHandler;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    useCase = new CreateAgentUseCase(mockRepo as unknown as AgentRepository);
+    handler = new CreateAgentCommandHandler(mockRepo);
   });
 
   it("saves the agent and returns it", async () => {
-    const result = await useCase.execute({
-      name: "Test Agent",
-      systemPrompt: "You are helpful.",
-    });
+    const result = await handler.execute(
+      new CreateAgentCommand("Test Agent", "You are helpful."),
+    );
 
     expect(mockRepo.save).toHaveBeenCalledTimes(1);
     expect(result.name).toBe("Test Agent");
@@ -404,13 +445,13 @@ describe("CreateAgentUseCase", () => {
 
   it("throws when name is empty", async () => {
     await expect(
-      useCase.execute({ name: "", systemPrompt: "You are helpful." }),
+      handler.execute(new CreateAgentCommand("", "You are helpful.")),
     ).rejects.toThrow("Agent name must not be empty");
   });
 
   it("throws when system prompt is empty", async () => {
     await expect(
-      useCase.execute({ name: "Agent", systemPrompt: "   " }),
+      handler.execute(new CreateAgentCommand("Agent", "   ")),
     ).rejects.toThrow("Agent system prompt must not be empty");
   });
 });
@@ -444,24 +485,24 @@ describe("Agent.create", () => {
 
 ### Integration test — Repository
 
-**File:** `apps/api/src/features/agent/infrastructure/agent.repository.int-spec.ts`
+**File:** `apps/api/src/features/agent/infrastructure/persistence/prisma-agent.repository.int-spec.ts`
 
 > Requires `DATABASE_URL` pointing at a real (test) database.
 
 ```typescript
 import { PrismaService } from "./prisma.service";
-import { AgentRepository } from "./agent.repository";
-import { Agent } from "../domain/agent.entity";
+import { PrismaAgentRepository } from "./prisma-agent.repository";
+import { Agent } from "../../domain/agent.entity";
 import { v4 as uuidv4 } from "uuid";
 
-describe("AgentRepository (integration)", () => {
+describe("PrismaAgentRepository (integration)", () => {
   let prisma: PrismaService;
-  let repo: AgentRepository;
+  let repo: PrismaAgentRepository;
 
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.onModuleInit();
-    repo = new AgentRepository(prisma);
+    repo = new PrismaAgentRepository(prisma);
   });
 
   afterAll(async () => {
