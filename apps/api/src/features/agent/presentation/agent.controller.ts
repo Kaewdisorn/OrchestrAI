@@ -1,10 +1,20 @@
-import { Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
+import { CommandBus } from "@nestjs/cqrs";
+import { CreateAgentResponseDto } from "./dto/create-agent.response.dto";
+import { CreateAgentCommand } from "../application/commands/create-agent.command";
 
 @Controller("agents")
 export class AgentController {
-  constructor() {}
+  constructor(private readonly commandBus: CommandBus) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async create() {}
+  async create(
+    @Body() body: CreateAgentRequestDto,
+  ): Promise<CreateAgentResponseDto> {
+    return this.commandBus.execute(
+      new CreateAgentCommand(body.name, body.systemPrompt),
+    );
+  }
 }
