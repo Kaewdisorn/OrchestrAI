@@ -216,6 +216,8 @@ export class PrismaAgentRepository implements IAgentRepository {
 
 ## Step 6 — Command & Handler
 
+> **Install:** `pnpm --filter api add @nestjs/cqrs`
+
 ### Command
 
 **File:** `apps/api/src/features/agent/application/commands/create-agent.command.ts`
@@ -247,7 +249,8 @@ export interface CreateAgentResponse {
 **File:** `apps/api/src/features/agent/application/commands/create-agent.command-handler.ts`
 
 ```typescript
-import { Inject, Injectable } from "@nestjs/common";
+import { CommandHandler, ICommandHandler } from "@nestjs/cqrs";
+import { Inject } from "@nestjs/common";
 import { v4 as uuidv4 } from "uuid";
 import { Agent } from "../../domain/agent.entity";
 import {
@@ -257,8 +260,10 @@ import {
 import { CreateAgentCommand } from "./create-agent.command";
 import { CreateAgentResponse } from "../create-agent.response";
 
-@Injectable()
-export class CreateAgentCommandHandler {
+@CommandHandler(CreateAgentCommand)
+export class CreateAgentCommandHandler
+  implements ICommandHandler<CreateAgentCommand, CreateAgentResponse>
+{
   constructor(
     @Inject(AGENT_REPOSITORY)
     private readonly agentRepository: IAgentRepository,
@@ -322,21 +327,21 @@ export class CreateAgentResponseDto {
 
 ```typescript
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
-import { CreateAgentCommandHandler } from "../application/commands/create-agent.command-handler";
+import { CommandBus } from "@nestjs/cqrs";
 import { CreateAgentCommand } from "../application/commands/create-agent.command";
 import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
 import { CreateAgentResponseDto } from "./dto/create-agent.response.dto";
 
 @Controller("agents")
 export class AgentController {
-  constructor(private readonly handler: CreateAgentCommandHandler) {}
+  constructor(private readonly commandBus: CommandBus) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() body: CreateAgentRequestDto,
   ): Promise<CreateAgentResponseDto> {
-    return this.handler.execute(
+    return this.commandBus.execute(
       new CreateAgentCommand(body.name, body.systemPrompt),
     );
   }
@@ -351,6 +356,7 @@ export class AgentController {
 
 ```typescript
 import { Module } from "@nestjs/common";
+import { CqrsModule } from "@nestjs/cqrs";
 import { AgentController } from "./agent.controller";
 import { CreateAgentCommandHandler } from "../application/commands/create-agent.command-handler";
 import { PrismaAgentRepository } from "../infrastructure/persistence/prisma-agent.repository";
@@ -358,6 +364,7 @@ import { PrismaService } from "../infrastructure/persistence/prisma.service";
 import { AGENT_REPOSITORY } from "../application/ports/agent-repository.port";
 
 @Module({
+  imports: [CqrsModule],
   controllers: [AgentController],
   providers: [
     CreateAgentCommandHandler,
