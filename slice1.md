@@ -465,6 +465,64 @@ describe("CreateAgentCommandHandler", () => {
 });
 ```
 
+### Unit test — Controller
+
+**File:** `apps/api/src/features/agent/presentation/agent.controller.spec.ts`
+
+```typescript
+import { AgentController } from "./agent.controller";
+import { CommandBus } from "@nestjs/cqrs";
+import { CreateAgentCommand } from "../application/commands/create-agent.command";
+import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
+
+const mockCommandBus = {
+  execute: jest.fn(),
+} as unknown as jest.Mocked<CommandBus>;
+
+describe("AgentController", () => {
+  let controller: AgentController;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    controller = new AgentController(mockCommandBus);
+  });
+
+  it("dispatches CreateAgentCommand with the correct arguments", async () => {
+    const dto: CreateAgentRequestDto = {
+      name: "Test Agent",
+      systemPrompt: "You are helpful.",
+    };
+    const expectedResponse = {
+      id: "some-uuid",
+      name: dto.name,
+      systemPrompt: dto.systemPrompt,
+      createdAt: new Date().toISOString(),
+    };
+    (mockCommandBus.execute as jest.Mock).mockResolvedValue(expectedResponse);
+
+    const result = await controller.create(dto);
+
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1);
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      new CreateAgentCommand(dto.name, dto.systemPrompt),
+    );
+    expect(result).toEqual(expectedResponse);
+  });
+
+  it("propagates errors thrown by the command bus", async () => {
+    (mockCommandBus.execute as jest.Mock).mockRejectedValue(
+      new Error("Agent name must not be empty"),
+    );
+
+    await expect(
+      controller.create({ name: "", systemPrompt: "ok" }),
+    ).rejects.toThrow("Agent name must not be empty");
+  });
+});
+```
+
+---
+
 ### Unit test — Domain Entity
 
 **File:** `apps/api/src/features/agent/domain/agent.entity.spec.ts`
