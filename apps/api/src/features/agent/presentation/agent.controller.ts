@@ -3,6 +3,7 @@ import { CreateAgentRequestDto } from "./dto/create-agent.request.dto";
 import { CommandBus } from "@nestjs/cqrs";
 import { CreateAgentResponseDto } from "./dto/create-agent.response.dto";
 import { CreateAgentCommand } from "../application/commands/create-agent.command";
+import { AgentMapper } from "./mappers/agent.mapper";
 
 @Controller("agents")
 export class AgentController {
@@ -13,8 +14,10 @@ export class AgentController {
   async create(
     @Body() body: CreateAgentRequestDto,
   ): Promise<CreateAgentResponseDto> {
-    return this.commandBus.execute(
+    const result = await this.commandBus.execute(
       new CreateAgentCommand(body.name, body.systemPrompt),
     );
+
+    return AgentMapper.toResponseDto(result);
   }
 }
