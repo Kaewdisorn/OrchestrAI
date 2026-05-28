@@ -1,4 +1,4 @@
-import { Agent } from "../../domain/agent.entity";
+import { Agent } from "../../../domain/agent.entity";
 
 export const AGENT_REPOSITORY = Symbol("IAgentRepository");
 
