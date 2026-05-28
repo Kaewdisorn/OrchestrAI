@@ -675,8 +675,29 @@ pnpm test:e2e
 
 ## Checklist
 
-- [ ] `prisma migrate dev` runs without error
-- [ ] `Agent.create` rejects empty name and empty system prompt
+### Implementation progress
+
+- [x] Step 1 — Prisma schema — `Agent` model added, `prisma migrate dev` ran (`20260521194717_create_agents_table`)
+- [x] Step 2 — Domain entity `agent.entity.ts` — `Agent.create` with blank-name / blank-prompt validation
+- [ ] Step 2 — `Agent.reconstitute` static method is missing (needed by the repository adapter)
+- [ ] Step 3 — Prisma service — `infrastructure/persistence/prisma.service.ts` not created
+- [ ] Step 4 — Repository port — `application/ports/agent-repository.port.ts` not created
+- [ ] Step 5 — Prisma repository adapter — `infrastructure/persistence/prisma-agent.repository.ts` not created
+- [x] Step 6 — `CreateAgentCommand` and `CreateAgentResponse` created
+- [ ] Step 6 — `CreateAgentCommandHandler` incomplete — no `@Inject(AGENT_REPOSITORY)`, no persistence call, returns `{} as CreateAgentResponse`
+- [x] Step 7 — `CreateAgentRequestDto` and `CreateAgentResponseDto` created
+- [x] Step 8 — `AgentController` (`POST /agents`) created
+- [ ] Step 9 — `AgentModule` (`presentation/agent.module.ts`) not created
+- [ ] Step 9 — `AppModule` exists but is empty — `AgentModule` not imported
+- [x] Step 10 — Global `ValidationPipe` registered in `main.ts`
+- [ ] Step 11 — Unit tests not written (command handler, controller, domain entity)
+- [ ] Step 11 — Integration test not written (`prisma-agent.repository.int-spec.ts`)
+- [ ] Step 11 — E2E test not written (`test/agent.e2e-spec.ts`)
+
+### Outcomes
+
+- [x] `prisma migrate dev` runs without error
+- [x] `Agent.create` rejects empty name and empty system prompt
 - [ ] `AgentRepository.save` writes a row; `findById` retrieves it
 - [ ] `POST /agents` with valid body returns `201` + `{ id, name, systemPrompt, createdAt }`
 - [ ] `POST /agents` with missing field returns `400`
