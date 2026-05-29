@@ -820,13 +820,13 @@ pnpm test:e2e
 - [x] Step 2 — Domain entity `agent.entity.ts` — `Agent.create` with blank-name / blank-prompt validation
 - [ ] Step 2 — `Agent.reconstitute` static method is missing (needed by the repository adapter)
 - [ ] Step 3 — Prisma service — `infrastructure/persistence/prisma.service.ts` not created
-- [ ] Step 4 — Repository port — `application/ports/outbound/agent-repository.port.ts` not created
+- [x] Step 4 — Repository port — `application/ports/outbound/agent-repository.port.ts` created (`save` only; `findById` is commented out — needed by repository adapter)
 - [ ] Step 5 — Prisma repository adapter — `infrastructure/persistence/prisma-agent.repository.ts` not created
 - [x] Step 6 — `CreateAgentCommand` and `CreateAgentResponse` created
 - [ ] Step 6 — `CreateAgentCommandHandler` incomplete — no `@Inject(AGENT_REPOSITORY)`, no persistence call, returns `{} as CreateAgentResponse`
 - [x] Step 7 — `CreateAgentRequestDto` and `CreateAgentResponseDto` created
-- [ ] Step 7 — Inbound Port `application/ports/inbound/create-agent.use-case.port.ts` not created
-- [ ] Step 8 — Application Service `create-agent.service.ts` not created
+- [x] Step 7 — Inbound Port `application/ports/inbound/create-agent.use-case.port.ts` created
+- [x] Step 8 — Application Service `create-agent.service.ts` created
 - [x] Step 11 — `AgentController` (`POST /agents`) created with `ICreateAgentUseCase` + `AgentMapper`
 - [x] Step 10 — `AgentMapper` created (`presentation/mappers/agent.mapper.ts`)
 - [ ] Step 12 — `AgentModule` (`presentation/agent.module.ts`) not created
