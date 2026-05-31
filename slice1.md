@@ -818,20 +818,21 @@ pnpm test:e2e
 
 - [x] Step 1 — Prisma schema — `Agent` model added, `prisma migrate dev` ran (`20260521194717_create_agents_table`)
 - [x] Step 2 — Domain entity `agent.entity.ts` — `Agent.create` with blank-name / blank-prompt validation
-- [ ] Step 2 — `Agent.reconstitute` static method is missing (needed by the repository adapter)
-- [ ] Step 3 — Prisma service — `infrastructure/persistence/prisma.service.ts` not created
-- [x] Step 4 — Repository port — `application/ports/outbound/agent-repository.port.ts` created (`save` only; `findById` is commented out — needed by repository adapter)
-- [ ] Step 5 — Prisma repository adapter — `infrastructure/persistence/prisma-agent.repository.ts` not created
+- [ ] Step 2 — `Agent.reconstitute` static method is missing (needed by `PrismaAgentRepository.findById`)
+- [x] Step 3 — Prisma service — `infrastructure/persistence/prisma.service.ts` created (`$connect` / `$disconnect`)
+- [x] Step 4 — Repository port — `application/ports/outbound/agent-repository.port.ts` created with `save` and `findById`
+- [x] Step 5 — Prisma repository adapter — `infrastructure/persistence/prisma-agent.repository.ts` created (implements `save`)
+- [ ] Step 5 — `PrismaAgentRepository.findById` not implemented (blocked by missing `Agent.reconstitute`)
 - [x] Step 6 — `CreateAgentCommand` and `CreateAgentResponse` created
-- [ ] Step 6 — `CreateAgentCommandHandler` incomplete — no `@Inject(AGENT_REPOSITORY)`, no persistence call, returns `{} as CreateAgentResponse`
-- [x] Step 7 — `CreateAgentRequestDto` and `CreateAgentResponseDto` created
+- [ ] Step 6 — `CreateAgentCommandHandler.execute` returns `{} as CreateAgentResponse` instead of `{ id, name, systemPrompt, createdAt }`
 - [x] Step 7 — Inbound Port `application/ports/inbound/create-agent.use-case.port.ts` created
+- [x] Step 9 — `CreateAgentRequestDto` and `CreateAgentResponseDto` created
 - [x] Step 8 — Application Service `create-agent.service.ts` created
-- [x] Step 11 — `AgentController` (`POST /agents`) created with `ICreateAgentUseCase` + `AgentMapper`
 - [x] Step 10 — `AgentMapper` created (`presentation/mappers/agent.mapper.ts`)
-- [ ] Step 12 — `AgentModule` (`presentation/agent.module.ts`) not created
-- [ ] Step 12 — `AppModule` exists but is empty — `AgentModule` not imported
-- [x] Step 13 — Global `ValidationPipe` registered in `main.ts`
+- [x] Step 11 — `AgentController` (`POST /agents`) created with `ICreateAgentUseCase` + `AgentMapper`
+- [x] Step 12 — `AgentModule` (`agent.module.ts`) created, wires `AGENT_REPOSITORY` → `PrismaAgentRepository` and `CREATE_AGENT_USE_CASE` → `CreateAgentService`
+- [x] Step 12 — `AppModule` imports `AgentModule`
+- [x] Step 13 — Global `ValidationPipe` registered in `main.ts` (`whitelist`, `transform`, `forbidNonWhitelisted`)
 - [ ] Step 14 — Unit tests not written (command handler, controller, domain entity)
 - [ ] Step 14 — Integration test not written (`prisma-agent.repository.int-spec.ts`)
 - [ ] Step 14 — E2E test not written (`test/agent.e2e-spec.ts`)
@@ -840,7 +841,7 @@ pnpm test:e2e
 
 - [x] `prisma migrate dev` runs without error
 - [x] `Agent.create` rejects empty name and empty system prompt
-- [ ] `AgentRepository.save` writes a row; `findById` retrieves it
-- [ ] `POST /agents` with valid body returns `201` + `{ id, name, systemPrompt, createdAt }`
+- [ ] `AgentRepository.save` writes a row; `findById` retrieves it — **blocked**: `Agent.reconstitute` and `PrismaAgentRepository.findById` not implemented
+- [ ] `POST /agents` with valid body returns `201` + `{ id, name, systemPrompt, createdAt }` — **blocked**: handler returns empty object
 - [ ] `POST /agents` with missing field returns `400`
 - [ ] All three test levels (unit, integration, E2E) pass
