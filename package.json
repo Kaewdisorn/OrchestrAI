@@ -13,7 +13,7 @@
         "prisma:generate": "turbo run prisma:generate --filter=api"
     },
     "devDependencies": {
-        "turbo": "^2.3.0"
+        "turbo": "^2.9.17"
     },
     "engines": {
         "node": ">=20.0.0",
