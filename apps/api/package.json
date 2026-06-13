@@ -7,9 +7,13 @@
 	},
 	"devDependencies": {
 		"@nestjs/cli": "^11.0.0",
+		"@nestjs/testing": "^11.1.26",
+		"@types/jest": "^30.0.0",
 		"@types/node": "^22.19.20",
 		"@types/pg": "^8.20.0",
+		"jest": "^30.4.2",
 		"prisma": "^7.8.0",
+		"ts-jest": "^29.4.11",
 		"tsx": "^4.19.0",
 		"typescript": "^5.8.0"
 	},
