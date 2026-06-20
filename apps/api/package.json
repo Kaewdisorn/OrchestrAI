@@ -3,7 +3,8 @@
 	"scripts": {
 		"dev": "tsx watch src/main.ts",
 		"build": "tsc",
-		"start": "node dist/main.js"
+		"start": "node dist/main.js",
+		"test": "jest"
 	},
 	"devDependencies": {
 		"@nestjs/cli": "^11.0.0",
