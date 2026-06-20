@@ -833,7 +833,9 @@ pnpm test:e2e
 - [x] Step 12 — `AgentModule` created at `src/features/agent/agent.module.ts` (feature root, not `presentation/` as specified); wires `AGENT_REPOSITORY` → `PrismaAgentRepository` and `CREATE_AGENT_USE_CASE` → `CreateAgentService`
 - [x] Step 12 — `AppModule` imports from `./features/agent/agent.module` (not `presentation/agent.module`)
 - [x] Step 13 — Global `ValidationPipe` registered in `main.ts` (`whitelist`, `transform`, `forbidNonWhitelisted`); also imports `dotenv/config` and throws if `PORT` env var is absent (no `?? 3000` fallback)
-- [ ] Step 14 — Unit tests not written (command handler, controller, domain entity)
+- [~] Step 14 — Controller unit test partially written (`presentation/agent.controller.spec.ts`): happy-path case exists; error-propagation case and domain-entity spec are missing
+- [ ] Step 14 — Command handler unit test not written
+- [ ] Step 14 — Domain entity unit test not written (`agent.entity.spec.ts`)
 - [ ] Step 14 — Integration test not written (`prisma-agent.repository.int-spec.ts`)
 - [ ] Step 14 — E2E test not written (`test/agent.e2e-spec.ts`)
 
